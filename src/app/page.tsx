@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
@@ -14,9 +16,14 @@ export default function Home() {
         <p className="text-muted-foreground mt-4 max-w-xl text-lg">
           AI-powered tools to help you create, optimize, and grow on YouTube.
         </p>
-        <Button className="mt-8" size="lg">
-          Get Started
-        </Button>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <Button size="lg" render={<Link href="/signup" />}>
+            Get Started
+          </Button>
+          <Button size="lg" variant="outline" render={<Link href="/login" />}>
+            Sign in
+          </Button>
+        </div>
       </main>
       <SiteFooter />
     </div>
