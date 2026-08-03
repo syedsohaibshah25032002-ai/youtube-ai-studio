@@ -17,6 +17,12 @@ export function DashboardNav() {
           >
             Dashboard
           </Link>
+          <Link
+            href="/dashboard/channels"
+            className="text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
+          >
+            Channels
+          </Link>
           <LogoutButton />
         </nav>
       </div>

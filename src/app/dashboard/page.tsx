@@ -1,7 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { prisma } from "@/lib/prisma";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -11,6 +14,10 @@ export default async function DashboardPage() {
   }
 
   const user = session.user;
+
+  const channelCount = await prisma.channel.count({
+    where: { userId: user.id },
+  });
 
   return (
     <div className="container mx-auto flex flex-1 flex-col gap-6 px-4 py-10">
@@ -35,11 +42,31 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Channels</CardTitle>
+            <CardDescription>
+              {channelCount === 0
+                ? "No channels connected yet"
+                : `${channelCount} connected ${channelCount === 1 ? "channel" : "channels"}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant={channelCount === 0 ? "default" : "outline"}
+              size="sm"
+              render={<Link href="/dashboard/channels" />}
+            >
+              {channelCount === 0 ? "Connect a channel" : "Manage channels"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Next steps</CardTitle>
             <CardDescription>Coming soon</CardDescription>
           </CardHeader>
           <CardContent className="text-muted-foreground text-sm">
-            YouTube integration and AI tools are on the way.
+            YouTube upload and AI tools are on the way.
           </CardContent>
         </Card>
       </div>
