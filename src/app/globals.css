@@ -133,3 +133,16 @@
     @apply font-sans;
   }
 }
+
+@keyframes progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.animate-progress-slide {
+  animation: progress-slide 1.2s ease-in-out infinite;
+}

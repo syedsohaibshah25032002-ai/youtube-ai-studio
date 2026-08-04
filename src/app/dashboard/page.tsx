@@ -15,12 +15,15 @@ export default async function DashboardPage() {
 
   const user = session.user;
 
-  const [channelCount, videoCount] = await Promise.all([
+  const [channelCount, videoCount, aiJobCount] = await Promise.all([
     prisma.channel.count({
       where: { userId: user.id },
     }),
     prisma.video.count({
       where: { channel: { userId: user.id } },
+    }),
+    prisma.aiJob.count({
+      where: { userId: user.id },
     }),
   ]);
 
@@ -87,11 +90,31 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">AI Content Engine</CardTitle>
+            <CardDescription>
+              {aiJobCount === 0
+                ? "No generations yet"
+                : `${aiJobCount} ${aiJobCount === 1 ? "generation" : "generations"}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant={aiJobCount === 0 ? "default" : "outline"}
+              size="sm"
+              render={<Link href="/dashboard/ai" />}
+            >
+              {aiJobCount === 0 ? "Start generating" : "Open AI Engine"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Next steps</CardTitle>
             <CardDescription>Coming soon</CardDescription>
           </CardHeader>
           <CardContent className="text-muted-foreground text-sm">
-            YouTube publishing and AI tools are on the way.
+            YouTube publishing and AI integration are on the way.
           </CardContent>
         </Card>
       </div>

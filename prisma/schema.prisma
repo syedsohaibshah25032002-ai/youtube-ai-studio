@@ -17,6 +17,7 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   channels      Channel[]
+  aiJobs        AiJob[]
 
   @@map("users")
 }
@@ -35,6 +36,7 @@ model Channel {
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   videos Video[]
+  aiJobs AiJob[]
 
   @@unique([userId, channelId])
   @@index([userId])
@@ -60,4 +62,44 @@ model Video {
 
   @@index([channelId])
   @@map("videos")
+}
+
+model AiJob {
+  id        String   @id @default(cuid())
+  userId    String
+  topic     String
+  channelId String?
+  provider  String
+  model     String
+  status    String   @default("PENDING")
+  progress  Int      @default(0)
+  errorLog  Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel?          @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  results AiSectionResult[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("ai_jobs")
+}
+
+model AiSectionResult {
+  id        String   @id @default(cuid())
+  jobId     String
+  section   String
+  content   Json
+  provider  String
+  model     String
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job AiJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, section])
+  @@index([jobId])
+  @@map("ai_section_results")
 }

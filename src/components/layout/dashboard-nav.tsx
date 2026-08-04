@@ -29,6 +29,12 @@ export function DashboardNav() {
           >
             Videos
           </Link>
+          <Link
+            href="/dashboard/ai"
+            className="text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
+          >
+            AI Engine
+          </Link>
           <LogoutButton />
         </nav>
       </div>
