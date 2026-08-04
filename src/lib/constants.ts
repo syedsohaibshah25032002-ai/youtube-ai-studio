@@ -35,3 +35,7 @@ export const YOUTUBE_LANGUAGES = [
   { value: "ar", label: "Arabic" },
   { value: "ru", label: "Russian" },
 ] as const;
+
+export function getYouTubeCategoryLabel(categoryId: string): string | undefined {
+  return YOUTUBE_CATEGORIES.find((category) => category.value === categoryId)?.label;
+}

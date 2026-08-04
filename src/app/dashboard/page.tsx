@@ -15,9 +15,14 @@ export default async function DashboardPage() {
 
   const user = session.user;
 
-  const channelCount = await prisma.channel.count({
-    where: { userId: user.id },
-  });
+  const [channelCount, videoCount] = await Promise.all([
+    prisma.channel.count({
+      where: { userId: user.id },
+    }),
+    prisma.video.count({
+      where: { channel: { userId: user.id } },
+    }),
+  ]);
 
   return (
     <div className="container mx-auto flex flex-1 flex-col gap-6 px-4 py-10">
@@ -62,11 +67,31 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Videos</CardTitle>
+            <CardDescription>
+              {videoCount === 0
+                ? "No videos yet"
+                : `${videoCount} ${videoCount === 1 ? "video" : "videos"}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant={videoCount === 0 ? "default" : "outline"}
+              size="sm"
+              render={<Link href="/dashboard/videos" />}
+            >
+              {videoCount === 0 ? "Add a video" : "Manage videos"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Next steps</CardTitle>
             <CardDescription>Coming soon</CardDescription>
           </CardHeader>
           <CardContent className="text-muted-foreground text-sm">
-            YouTube upload and AI tools are on the way.
+            YouTube publishing and AI tools are on the way.
           </CardContent>
         </Card>
       </div>

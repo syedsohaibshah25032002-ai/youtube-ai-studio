@@ -1,4 +1,4 @@
-import type { ChannelInfo } from "./types";
+import type { ChannelInfo, VideoInfo } from "./types";
 
 function hashString(value: string): number {
   let hash = 0;
@@ -23,5 +23,31 @@ export function getMockChannelInfo(channelId: string): ChannelInfo {
       channelId.slice(0, 2).toUpperCase()
     )}`,
     subscriberCount: 1000 + (hash % 999000),
+  };
+}
+
+/**
+ * Generates deterministic, plausible video data when the YouTube Data API
+ * is not configured. This keeps the UI fully functional without an API key.
+ */
+export function getMockVideoInfo(videoId: string): VideoInfo {
+  const hash = hashString(videoId);
+
+  const previews = [
+    "A deep dive into AI-powered video tools",
+    "10 tips to grow your channel this year",
+    "Behind the scenes of a viral short",
+    "How to plan your content calendar",
+    "Editing workflow walkthrough",
+  ];
+
+  return {
+    videoId,
+    title: `${previews[hash % previews.length]} ${videoId.slice(0, 6).toUpperCase()}`,
+    description:
+      "This is mock video data generated while the YouTube API is disabled. Connect an API key in a later phase to fetch real video information.",
+    thumbnailUrl: `https://placehold.co/640x360/111827/ffffff?text=${encodeURIComponent(
+      videoId.slice(0, 2).toUpperCase()
+    )}`,
   };
 }
