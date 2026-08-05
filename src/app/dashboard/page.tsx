@@ -15,7 +15,7 @@ export default async function DashboardPage() {
 
   const user = session.user;
 
-  const [channelCount, videoCount, aiJobCount] = await Promise.all([
+  const [channelCount, videoCount, aiJobCount, mediaAssetCount] = await Promise.all([
     prisma.channel.count({
       where: { userId: user.id },
     }),
@@ -23,6 +23,9 @@ export default async function DashboardPage() {
       where: { channel: { userId: user.id } },
     }),
     prisma.aiJob.count({
+      where: { userId: user.id },
+    }),
+    prisma.mediaAsset.count({
       where: { userId: user.id },
     }),
   ]);
@@ -104,6 +107,26 @@ export default async function DashboardPage() {
               render={<Link href="/dashboard/ai" />}
             >
               {aiJobCount === 0 ? "Start generating" : "Open AI Engine"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Media Library</CardTitle>
+            <CardDescription>
+              {mediaAssetCount === 0
+                ? "No media yet"
+                : `${mediaAssetCount} ${mediaAssetCount === 1 ? "asset" : "assets"}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant={mediaAssetCount === 0 ? "default" : "outline"}
+              size="sm"
+              render={<Link href="/dashboard/media" />}
+            >
+              {mediaAssetCount === 0 ? "Generate media" : "Open Media Library"}
             </Button>
           </CardContent>
         </Card>
