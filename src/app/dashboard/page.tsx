@@ -15,7 +15,7 @@ export default async function DashboardPage() {
 
   const user = session.user;
 
-  const [channelCount, videoCount, aiJobCount, mediaAssetCount] = await Promise.all([
+  const [channelCount, videoCount, aiJobCount, mediaAssetCount, videoJobCount] = await Promise.all([
     prisma.channel.count({
       where: { userId: user.id },
     }),
@@ -26,6 +26,9 @@ export default async function DashboardPage() {
       where: { userId: user.id },
     }),
     prisma.mediaAsset.count({
+      where: { userId: user.id },
+    }),
+    prisma.videoJob.count({
       where: { userId: user.id },
     }),
   ]);
@@ -127,6 +130,26 @@ export default async function DashboardPage() {
               render={<Link href="/dashboard/media" />}
             >
               {mediaAssetCount === 0 ? "Generate media" : "Open Media Library"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Video Studio</CardTitle>
+            <CardDescription>
+              {videoJobCount === 0
+                ? "No video jobs yet"
+                : `${videoJobCount} ${videoJobCount === 1 ? "video job" : "video jobs"}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant={videoJobCount === 0 ? "default" : "outline"}
+              size="sm"
+              render={<Link href="/dashboard/video" />}
+            >
+              {videoJobCount === 0 ? "Generate a video" : "Open Video Studio"}
             </Button>
           </CardContent>
         </Card>

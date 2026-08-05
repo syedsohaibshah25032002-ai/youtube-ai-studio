@@ -41,6 +41,12 @@ export function DashboardNav() {
           >
             Media
           </Link>
+          <Link
+            href="/dashboard/video"
+            className="text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
+          >
+            Video Studio
+          </Link>
           <LogoutButton />
         </nav>
       </div>
