@@ -47,6 +47,12 @@ export function DashboardNav() {
           >
             Video Studio
           </Link>
+          <Link
+            href="/dashboard/video/renders"
+            className="text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
+          >
+            Renders
+          </Link>
           <LogoutButton />
         </nav>
       </div>

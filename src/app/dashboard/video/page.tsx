@@ -42,6 +42,9 @@ export default async function VideoStudioPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Button variant="outline" render={<Link href="/dashboard/video/renders" />}>
+            Render history
+          </Button>
           <Button variant="outline" render={<Link href="/dashboard/video/history" />}>
             Generation history
           </Button>

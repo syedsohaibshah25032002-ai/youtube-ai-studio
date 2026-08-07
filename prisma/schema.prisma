@@ -20,6 +20,7 @@ model User {
   aiJobs        AiJob[]
   mediaAssets   MediaAsset[]
   videoJobs     VideoJob[]
+  videoRenders  VideoRender[]
 
   @@map("users")
 }
@@ -180,6 +181,7 @@ model VideoJob {
   user    User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   aiJob   AiJob?                @relation(fields: [aiJobId], references: [id], onDelete: SetNull)
   runs    VideoGenerationRun[]
+  renders VideoRender[]
 
   @@index([userId])
   @@index([status])
@@ -209,4 +211,60 @@ model VideoGenerationRun {
   @@index([videoJobId])
   @@index([status])
   @@map("video_generation_runs")
+}
+
+model VideoRender {
+  id              String    @id @default(cuid())
+  userId          String
+  videoJobId      String
+  resolution      String    @default("1080p")
+  status          String    @default("PENDING")
+  progress        Int       @default(0)
+  stage           String    @default("")
+  provider        String
+  model           String
+  outputPath      String?
+  durationSeconds Int?
+  width           Int?
+  height          Int?
+  previewImages   Json      @default("[]")
+  errorLog        Json      @default("[]")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  startedAt       DateTime?
+  finishedAt      DateTime?
+
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoJob  VideoJob           @relation(fields: [videoJobId], references: [id], onDelete: Cascade)
+  runs      VideoRenderRun[]
+
+  @@index([userId])
+  @@index([videoJobId])
+  @@index([status])
+  @@map("video_renders")
+}
+
+model VideoRenderRun {
+  id              String    @id @default(cuid())
+  renderId        String
+  status          String    @default("PENDING")
+  provider        String
+  model           String
+  progress        Int       @default(0)
+  resolution      String    @default("1080p")
+  outputPath      String?
+  durationSeconds Int?
+  width           Int?
+  height          Int?
+  previewImages   Json      @default("[]")
+  errorLog        Json      @default("[]")
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  render VideoRender @relation(fields: [renderId], references: [id], onDelete: Cascade)
+
+  @@index([renderId])
+  @@index([status])
+  @@map("video_render_runs")
 }

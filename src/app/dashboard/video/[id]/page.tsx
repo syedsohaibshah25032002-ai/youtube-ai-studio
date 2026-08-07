@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeleteVideoButton } from "@/components/video/delete-video-button";
 import { GenerateVideoButton } from "@/components/video/generate-video-button";
+import { RenderHistorySection } from "@/components/video/render-history-section";
+import { RenderJobForm } from "@/components/video/render-job-form";
 import { RetryVideoButton } from "@/components/video/retry-video-button";
 import { VideoJobProgress } from "@/components/video/video-job-progress";
 import { VideoRunCard } from "@/components/video/video-run-card";
@@ -17,7 +19,7 @@ import { CAPTION_STYLE_LABELS, TRANSITION_LABELS } from "@/features/video-engine
 import { readConfig, readErrorLog, readTimeline } from "@/features/video-engine/generator";
 import { formatDate } from "@/lib/date";
 import { prisma } from "@/lib/prisma";
-import { ArrowLeftIcon, ClipboardXIcon, FilmIcon } from "lucide-react";
+import { ArrowLeftIcon, ClipboardXIcon, FilmIcon, MonitorPlayIcon } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Video job",
@@ -35,6 +37,7 @@ export default async function VideoJobDetailPage({ params }: { params: Promise<{
     where: { id, userId: session.user.id },
     include: {
       runs: { orderBy: { createdAt: "desc" } },
+      renders: { orderBy: { createdAt: "desc" } },
     },
   });
 
@@ -112,6 +115,30 @@ export default async function VideoJobDetailPage({ params }: { params: Promise<{
               ) : null}
               {job.finishedAt ? <span>Finished {formatDate(job.finishedAt)}</span> : null}
             </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {job.status === "COMPLETED" ? (
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MonitorPlayIcon className="size-4" />
+              Render & export
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-6">
+              <RenderJobForm videoJobId={job.id} />
+            </div>
+
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Render history</h3>
+              <Button variant="outline" size="sm" render={<Link href="/dashboard/video/renders" />}>
+                View all renders
+              </Button>
+            </div>
+            <RenderHistorySection renders={job.renders} />
           </CardContent>
         </Card>
       ) : null}

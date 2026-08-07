@@ -15,23 +15,27 @@ export default async function DashboardPage() {
 
   const user = session.user;
 
-  const [channelCount, videoCount, aiJobCount, mediaAssetCount, videoJobCount] = await Promise.all([
-    prisma.channel.count({
-      where: { userId: user.id },
-    }),
-    prisma.video.count({
-      where: { channel: { userId: user.id } },
-    }),
-    prisma.aiJob.count({
-      where: { userId: user.id },
-    }),
-    prisma.mediaAsset.count({
-      where: { userId: user.id },
-    }),
-    prisma.videoJob.count({
-      where: { userId: user.id },
-    }),
-  ]);
+  const [channelCount, videoCount, aiJobCount, mediaAssetCount, videoJobCount, renderCount] =
+    await Promise.all([
+      prisma.channel.count({
+        where: { userId: user.id },
+      }),
+      prisma.video.count({
+        where: { channel: { userId: user.id } },
+      }),
+      prisma.aiJob.count({
+        where: { userId: user.id },
+      }),
+      prisma.mediaAsset.count({
+        where: { userId: user.id },
+      }),
+      prisma.videoJob.count({
+        where: { userId: user.id },
+      }),
+      prisma.videoRender.count({
+        where: { userId: user.id },
+      }),
+    ]);
 
   return (
     <div className="container mx-auto flex flex-1 flex-col gap-6 px-4 py-10">
@@ -141,6 +145,9 @@ export default async function DashboardPage() {
               {videoJobCount === 0
                 ? "No video jobs yet"
                 : `${videoJobCount} ${videoJobCount === 1 ? "video job" : "video jobs"}`}
+              {renderCount > 0
+                ? ` · ${renderCount} ${renderCount === 1 ? "render" : "renders"}`
+                : ""}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -160,7 +167,7 @@ export default async function DashboardPage() {
             <CardDescription>Coming soon</CardDescription>
           </CardHeader>
           <CardContent className="text-muted-foreground text-sm">
-            YouTube publishing and AI integration are on the way.
+            YouTube publishing is on the way. Rendering and export are live in Video Studio.
           </CardContent>
         </Card>
       </div>
