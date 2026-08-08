@@ -4,9 +4,48 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { toConnectionDisplay } from "@/features/youtube-connection/engine";
+import { YoutubeConnectionCard } from "@/components/youtube/youtube-connection-card";
 import { prisma } from "@/lib/prisma";
 
-export default async function DashboardPage() {
+function getConnectionMessage(searchParams: Record<string, string | string[] | undefined>): {
+  kind: "success" | "error" | null;
+  message: string;
+} {
+  if (searchParams.connected === "1") {
+    return { kind: "success", message: "YouTube channel connected successfully." };
+  }
+
+  const errorParam = Array.isArray(searchParams.error) ? searchParams.error[0] : searchParams.error;
+
+  if (errorParam === "access-denied") {
+    return { kind: "error", message: "Connection cancelled. Authorize the app to continue." };
+  }
+
+  if (errorParam === "state-mismatch") {
+    return { kind: "error", message: "Connection failed because the request expired. Try again." };
+  }
+
+  if (errorParam === "not-configured") {
+    return {
+      kind: "error",
+      message: "YouTube connection is not configured on this instance yet.",
+    };
+  }
+
+  if (typeof errorParam === "string" && errorParam.startsWith("connect-failed:")) {
+    const detail = errorParam.slice("connect-failed:".length).replaceAll("%20", " ");
+    return { kind: "error", message: `Connection failed: ${detail}` };
+  }
+
+  return { kind: null, message: "" };
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
 
   if (!session?.user) {
@@ -14,6 +53,8 @@ export default async function DashboardPage() {
   }
 
   const user = session.user;
+  const params = await searchParams;
+  const message = getConnectionMessage(params);
 
   const [channelCount, videoCount, aiJobCount, mediaAssetCount, videoJobCount, renderCount] =
     await Promise.all([
@@ -37,6 +78,10 @@ export default async function DashboardPage() {
       }),
     ]);
 
+  const youtubeConnection = await prisma.youtubeConnection.findUnique({
+    where: { userId: user.id },
+  });
+
   return (
     <div className="container mx-auto flex flex-1 flex-col gap-6 px-4 py-10">
       <div>
@@ -46,7 +91,29 @@ export default async function DashboardPage() {
         </p>
       </div>
 
+      {message.kind ? (
+        <div
+          className={
+            message.kind === "success"
+              ? "rounded-md border border-emerald-600/30 bg-emerald-600/10 p-3 text-sm"
+              : "border-destructive/30 bg-destructive/10 rounded-md border p-3 text-sm"
+          }
+        >
+          <p
+            className={
+              message.kind === "success"
+                ? "font-medium text-emerald-700"
+                : "text-destructive font-medium"
+            }
+          >
+            {message.message}
+          </p>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <YoutubeConnectionCard connection={toConnectionDisplay(youtubeConnection)} />
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Your profile</CardTitle>

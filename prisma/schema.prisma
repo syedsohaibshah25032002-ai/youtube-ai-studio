@@ -21,6 +21,7 @@ model User {
   mediaAssets   MediaAsset[]
   videoJobs     VideoJob[]
   videoRenders  VideoRender[]
+  youtubeConnections YoutubeConnection[]
 
   @@map("users")
 }
@@ -267,4 +268,29 @@ model VideoRenderRun {
   @@index([renderId])
   @@index([status])
   @@map("video_render_runs")
+}
+
+model YoutubeConnection {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  channelId           String
+  channelName         String
+  channelUrl          String?
+  thumbnailUrl        String?
+  subscriberCount     Int       @default(0)
+  status              String    @default("CONNECTED")
+  provider            String
+  tokensEncrypted     String
+  tokenExpiresAt      DateTime?
+  scope               String?
+  lastError           String?
+  lastCheckedAt       DateTime?
+  connectedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("youtube_connections")
 }
