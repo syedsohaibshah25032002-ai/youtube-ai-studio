@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { getYoutubeConnector } from "@/lib/youtube-connect";
+import { toYoutubeConnectorError } from "@/lib/youtube-connect/errors";
 import { decryptTokens, encryptTokens } from "@/lib/youtube-connect/token-crypto";
-import type { OAuthTokenResult, YoutubeConnectorError } from "@/lib/youtube-connect/types";
+import type {
+  OAuthTokenResult,
+  YoutubeConnector,
+  YoutubeConnectorError,
+} from "@/lib/youtube-connect/types";
 import {
   type ConnectionDisplay,
   type YoutubeConnectionStatus,
@@ -271,6 +276,54 @@ async function displayConnection(
 ): Promise<{ ok: true; display: ConnectionDisplay }> {
   const connection = await prisma.youtubeConnection.findUnique({ where: { userId } });
   return { ok: true, display: toConnectionDisplay(connection) };
+}
+
+/**
+ * Resolves a fresh access token for a user's YouTube connection, refreshing it
+ * when expired. Throws `YoutubeConnectorError` when the connection is missing,
+ * cannot be decrypted, or the tokens were revoked. Used by the upload engine so
+ * token handling stays in one place.
+ */
+export async function resolveYoutubeAccessToken(
+  userId: string
+): Promise<{ connector: YoutubeConnector; connectionId: string; accessToken: string }> {
+  const connection = await prisma.youtubeConnection.findUnique({
+    where: { userId },
+  });
+
+  if (!connection) {
+    throw toYoutubeConnectorError("NOT_CONFIGURED", "No YouTube connection found.");
+  }
+
+  const tokens = readTokens(connection);
+  if (!tokens?.accessToken) {
+    throw toYoutubeConnectorError(
+      "NOT_CONFIGURED",
+      "YouTube connection has no stored credentials."
+    );
+  }
+
+  const connector = getYoutubeConnector();
+  const accessExpired =
+    connection.tokenExpiresAt === null || connection.tokenExpiresAt.getTime() <= Date.now();
+
+  let accessToken = tokens.accessToken;
+  let refreshToken = tokens.refreshToken;
+
+  if (accessExpired) {
+    if (!refreshToken) {
+      throw toYoutubeConnectorError(
+        "TOKEN_REVOKED",
+        "Access token expired and no refresh token is available."
+      );
+    }
+    const refreshed = await connector.refreshAccessToken(refreshToken);
+    accessToken = refreshed.accessToken;
+    refreshToken = refreshed.refreshToken ?? refreshToken;
+    await applyRefreshTokens(connection.id, { ...refreshed, refreshToken });
+  }
+
+  return { connector, connectionId: connection.id, accessToken };
 }
 
 /**

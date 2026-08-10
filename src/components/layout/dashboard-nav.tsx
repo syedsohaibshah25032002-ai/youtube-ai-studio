@@ -59,6 +59,12 @@ export function DashboardNav() {
           >
             YouTube
           </Link>
+          <Link
+            href="/dashboard/youtube/upload"
+            className="text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
+          >
+            Publish
+          </Link>
           <LogoutButton />
         </nav>
       </div>

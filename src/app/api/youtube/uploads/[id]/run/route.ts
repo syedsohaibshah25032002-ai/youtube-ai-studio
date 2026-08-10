@@ -1,0 +1,45 @@
+import { NextResponse } from "next/server";
+
+import { auth } from "@/auth";
+import { runYoutubeUpload, toErrorMessage } from "@/features/youtube-upload/engine";
+import { prisma } from "@/lib/prisma";
+
+/**
+ * Starts the YouTube upload for a queued upload record. Execution is fired
+ * without blocking so the client can observe progress via the status endpoint.
+ * Uploads already in progress are guarded against.
+ */
+export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  const upload = await prisma.youtubeUpload.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true, status: true },
+  });
+
+  if (!upload) {
+    return NextResponse.json({ error: "Upload not found" }, { status: 404 });
+  }
+
+  if (upload.status === "UPLOADING") {
+    return NextResponse.json({ error: "Already uploading" }, { status: 409 });
+  }
+
+  if (upload.status === "COMPLETED" || upload.status === "DUPLICATE") {
+    return NextResponse.json(
+      { error: "This video was already published to YouTube" },
+      { status: 409 }
+    );
+  }
+
+  void runYoutubeUpload(id, session.user.id)
+    .then(() => console.log(`[youtube] Upload ${id} finished.`))
+    .catch((error) => console.error(`[youtube] Upload ${id} crashed: ${toErrorMessage(error)}`));
+
+  return NextResponse.json({ ok: true, status: "UPLOADING" });
+}

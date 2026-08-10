@@ -32,6 +32,37 @@ export type YoutubeConnectorError = {
   cause?: unknown;
 };
 
+export type YoutubeVisibility = "public" | "private" | "unlisted";
+
+export type YoutubeUploadMetadata = {
+  title: string;
+  description: string;
+  tags: string[];
+  categoryId: string;
+  visibility: YoutubeVisibility;
+};
+
+export type YoutubeUploadResult = {
+  videoId: string;
+  videoUrl: string;
+};
+
+export type YoutubeUploadRequest = {
+  /** Fresh access token for the connected channel. */
+  accessToken: string;
+  /** Absolute path to the MP4 file to upload. */
+  filePath: string;
+  /** Title, description, tags, category and visibility for the upload. */
+  metadata: YoutubeUploadMetadata;
+  /** Absolute path to an optional thumbnail image uploaded after the video. */
+  thumbnailPath?: string | null;
+  /**
+   * Optional progress hook receiving a 0-100 upload percentage and a stage
+   * label while the video bytes are transferred.
+   */
+  onProgress?: (progress: number, stage?: string) => void | Promise<void>;
+};
+
 export interface YoutubeConnector {
   /** Stable identifier persisted on connections, e.g. "google" or "mock". */
   readonly id: string;
@@ -53,6 +84,11 @@ export interface YoutubeConnector {
   refreshAccessToken(refreshToken: string): Promise<OAuthTokenResult>;
   /** Resolves the connected channel from an access token. */
   fetchChannelInfo(accessToken: string): Promise<YoutubeChannelInfo>;
+  /**
+   * Uploads an MP4 plus optional thumbnail to the connected channel using the
+   * YouTube Data API. Throws a `YoutubeConnectorError` on failure.
+   */
+  uploadVideo(request: YoutubeUploadRequest): Promise<YoutubeUploadResult>;
   /** Revokes a token. Best-effort; should not throw on already-revoked tokens. */
   revokeToken(token: string): Promise<void>;
 }

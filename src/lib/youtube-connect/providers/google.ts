@@ -3,12 +3,18 @@ import type {
   YoutubeChannelInfo,
   YoutubeConnector,
   YoutubeConnectorError,
+  YoutubeUploadRequest,
+  YoutubeUploadResult,
 } from "../types";
+import { toYoutubeConnectorError } from "../errors";
+
+import type { FileHandle } from "node:fs/promises";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3";
+const YOUTUBE_UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3";
 
 /**
  * YouTube scopes required to read the connected channel and, in Phase 7B, to
@@ -19,17 +25,16 @@ const DEFAULT_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
 ];
 
+/** Size of each media chunk sent during a resumable upload. */
+const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+
 function toConnectorError(
   code: YoutubeConnectorError["code"],
   message: string,
   status?: number,
   cause?: unknown
 ): YoutubeConnectorError {
-  const error = new Error(message) as unknown as YoutubeConnectorError;
-  error.code = code;
-  error.status = status;
-  error.cause = cause;
-  return error;
+  return toYoutubeConnectorError(code, message, status, cause);
 }
 
 type GoogleTokenResponse = {
@@ -208,6 +213,189 @@ export class GoogleYoutubeConnector implements YoutubeConnector {
         item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? null,
       subscriberCount: Number.parseInt(item.statistics?.subscriberCount ?? "0", 10) || 0,
     };
+  }
+
+  async uploadVideo(request: YoutubeUploadRequest): Promise<YoutubeUploadResult> {
+    const clientId = process.env.YOUTUBE_OAUTH_CLIENT_ID;
+    const clientSecret = process.env.YOUTUBE_OAUTH_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      throw toConnectorError("NOT_CONFIGURED", "YouTube OAuth credentials are not configured.");
+    }
+
+    const file = await import("node:fs/promises").then((fs) => fs.open(request.filePath, "r"));
+
+    try {
+      const stats = await file.stat();
+      const totalBytes = stats.size;
+
+      if (totalBytes <= 0) {
+        throw toConnectorError("INVALID_RESPONSE", "The video file is empty.");
+      }
+
+      if (request.onProgress) {
+        await request.onProgress(5, "Initiating upload");
+      }
+
+      const body = JSON.stringify({
+        snippet: {
+          title: request.metadata.title,
+          description: request.metadata.description,
+          tags: request.metadata.tags,
+          categoryId: request.metadata.categoryId,
+        },
+        status: { privacyStatus: request.metadata.visibility },
+      });
+
+      const initResponse = await fetch(
+        `${YOUTUBE_UPLOAD_URL}/videos?uploadType=resumable&part=snippet,status`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${request.accessToken}`,
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-Upload-Content-Type": "video/mp4",
+            "X-Upload-Content-Length": String(totalBytes),
+          },
+          body,
+          cache: "no-store",
+        }
+      );
+
+      if (initResponse.status === 401 || initResponse.status === 403) {
+        throw toConnectorError(
+          "TOKEN_REVOKED",
+          "YouTube upload authorization was revoked or expired.",
+          initResponse.status
+        );
+      }
+
+      if (!initResponse.ok) {
+        throw toConnectorError(
+          "UPSTREAM",
+          `YouTube upload session could not be created (${initResponse.status}).`,
+          initResponse.status
+        );
+      }
+
+      const uploadUrl = initResponse.headers.get("location");
+      if (!uploadUrl) {
+        throw toConnectorError("INVALID_RESPONSE", "YouTube returned no upload session URL.");
+      }
+
+      const videoId = await this.uploadResumable(uploadUrl, file, totalBytes, request.onProgress);
+
+      if (request.thumbnailPath) {
+        await this.setThumbnail(request.accessToken, videoId, request.thumbnailPath);
+      }
+
+      if (request.onProgress) {
+        await request.onProgress(100, "Completed");
+      }
+
+      return {
+        videoId,
+        videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      };
+    } finally {
+      await file.close();
+    }
+  }
+
+  /**
+   * Uploads the open file to a resumable session URL in chunks so progress can
+   * be reported. Returns the YouTube video ID parsed from the final response.
+   */
+  private async uploadResumable(
+    uploadUrl: string,
+    file: FileHandle,
+    totalBytes: number,
+    onProgress?: (progress: number, stage?: string) => void | Promise<void>
+  ): Promise<string> {
+    let offset = 0;
+
+    while (offset < totalBytes) {
+      const chunkSize = Math.min(UPLOAD_CHUNK_BYTES, totalBytes - offset);
+      const buffer = Buffer.alloc(chunkSize);
+      await file.read(buffer, 0, chunkSize, offset);
+
+      const response = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Length": String(chunkSize),
+          "Content-Range": `bytes ${offset}-${offset + chunkSize - 1}/${totalBytes}`,
+          "Content-Type": "video/mp4",
+        },
+        body: buffer,
+        cache: "no-store",
+      });
+
+      if (response.status === 200 || response.status === 201) {
+        const data = (await response.json()) as { id?: string };
+        const videoId = data.id;
+        if (!videoId) {
+          throw toConnectorError("INVALID_RESPONSE", "YouTube returned no video ID.");
+        }
+        return videoId;
+      }
+
+      if (response.status === 308) {
+        offset += chunkSize;
+        if (onProgress) {
+          await onProgress(
+            Math.min(95, 10 + Math.round((offset / totalBytes) * 80)),
+            "Uploading video"
+          );
+        }
+        continue;
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        throw toConnectorError(
+          "TOKEN_REVOKED",
+          "YouTube upload authorization was revoked or expired.",
+          response.status
+        );
+      }
+
+      throw toConnectorError(
+        "UPSTREAM",
+        `YouTube media upload failed with status ${response.status}.`,
+        response.status
+      );
+    }
+
+    throw toConnectorError("INVALID_RESPONSE", "YouTube upload ended without a video ID.");
+  }
+
+  /** Sets a custom thumbnail on an uploaded video using the media endpoint. */
+  private async setThumbnail(
+    accessToken: string,
+    videoId: string,
+    thumbnailPath: string
+  ): Promise<void> {
+    const thumbnail = await import("node:fs/promises").then((fs) => fs.readFile(thumbnailPath));
+
+    const response = await fetch(
+      `${YOUTUBE_UPLOAD_URL}/thumbnails/set?videoId=${encodeURIComponent(videoId)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "image/jpeg",
+          "Content-Length": String(thumbnail.byteLength),
+        },
+        body: thumbnail,
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      throw toConnectorError(
+        "UPSTREAM",
+        `YouTube thumbnail upload failed with status ${response.status}.`,
+        response.status
+      );
+    }
   }
 
   async revokeToken(token: string): Promise<void> {

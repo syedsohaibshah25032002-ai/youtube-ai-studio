@@ -1,7 +1,21 @@
-import type { OAuthTokenResult, YoutubeChannelInfo, YoutubeConnector } from "../types";
+import type {
+  OAuthTokenResult,
+  YoutubeChannelInfo,
+  YoutubeConnector,
+  YoutubeUploadRequest,
+  YoutubeUploadResult,
+} from "../types";
+import { toYoutubeConnectorError } from "../errors";
 
 const MOCK_CHANNEL_ID = "UCmock1234567890abcdef";
 const MOCK_SUBSCRIBER_COUNT = 1284;
+
+const UPLOAD_TICKS = 6;
+const TICK_DELAY_MS = 180;
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 /**
  * Deterministic connector used when no Google OAuth credentials are available.
@@ -54,8 +68,49 @@ export class MockYoutubeConnector implements YoutubeConnector {
     };
   }
 
+  async uploadVideo(request: YoutubeUploadRequest): Promise<YoutubeUploadResult> {
+    const { stat } = await import("node:fs/promises");
+
+    try {
+      await stat(request.filePath);
+    } catch {
+      throw toYoutubeConnectorError("INVALID_RESPONSE", "The video file could not be read.");
+    }
+
+    if (request.onProgress) {
+      await request.onProgress(5, "Initiating upload");
+    }
+
+    for (let tick = 1; tick <= UPLOAD_TICKS; tick += 1) {
+      if (request.onProgress) {
+        await request.onProgress(10 + Math.round((tick / UPLOAD_TICKS) * 80), "Uploading video");
+      }
+      await delay(TICK_DELAY_MS);
+    }
+
+    if (request.onProgress) {
+      await request.onProgress(100, "Completed");
+    }
+
+    const videoId = `mockVideo${Math.abs(hashString(request.filePath)) % 1_000_000_000}`;
+
+    return {
+      videoId,
+      videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+    };
+  }
+
   async revokeToken(_token: string): Promise<void> {
     void _token;
     // Nothing to revoke in mock mode.
   }
+}
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
 }
