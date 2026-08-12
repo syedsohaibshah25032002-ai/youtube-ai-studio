@@ -34,6 +34,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       stage: true,
       videoId: true,
       videoUrl: true,
+      scheduledAt: true,
+      timezone: true,
       errorLog: true,
       startedAt: true,
       finishedAt: true,

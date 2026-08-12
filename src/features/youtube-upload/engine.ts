@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getYoutubeConnector } from "@/lib/youtube-connect";
 import type { YoutubeUploadMetadata, YoutubeUploadResult } from "@/lib/youtube-connect/types";
 import { resolveYoutubeAccessToken } from "@/features/youtube-connection/engine";
+import { isValidTimeZone, zonedToUtc } from "@/lib/date";
 import type { YoutubeUploadInput } from "@/lib/validations/youtube-upload";
 import {
   type YoutubeUploadDisplay,
@@ -16,6 +17,19 @@ type ErrorLogEntry = {
   message: string;
   at: string;
 };
+
+/** Statuses the queue may atomically claim for processing. */
+const CLAIMABLE_STATUSES = ["PENDING", "SCHEDULED"] as const;
+
+/** Statuses that mean a render is already queued or published. */
+const BUSY_STATUSES = [
+  "PENDING",
+  "SCHEDULED",
+  "PROCESSING",
+  "UPLOADING",
+  "COMPLETED",
+  "DUPLICATE",
+] as const;
 
 export function toErrorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "message" in error) {
@@ -59,6 +73,8 @@ export function toUploadDisplay(upload: {
   stage: string;
   videoId: string | null;
   videoUrl: string | null;
+  scheduledAt: Date | null;
+  timezone: string;
   errorLog: unknown;
   startedAt: Date | null;
   finishedAt: Date | null;
@@ -79,6 +95,8 @@ export function toUploadDisplay(upload: {
     stage: upload.stage,
     videoId: upload.videoId,
     videoUrl: upload.videoUrl,
+    scheduledAt: upload.scheduledAt,
+    timezone: upload.timezone,
     errorLog: readErrorLog(upload.errorLog),
     startedAt: upload.startedAt,
     finishedAt: upload.finishedAt,
@@ -90,13 +108,44 @@ export function toUploadDisplay(upload: {
 export type CreateUploadResult =
   { ok: true; upload: YoutubeUploadDisplay; duplicate: boolean } | { ok: false; error: string };
 
+type ResolvedSchedule = {
+  status: "PENDING" | "SCHEDULED";
+  scheduledAt: Date | null;
+  timezone: string;
+};
+
+/**
+ * Resolves an optional datetime-local value + IANA timezone into a stored UTC
+ * instant and the initial queue status. A schedule in the future is queued as
+ * SCHEDULED; anything else (missing or already due) publishes immediately.
+ */
+function resolveSchedule(input: YoutubeUploadInput): ResolvedSchedule {
+  const timezone = input.timezone || "UTC";
+  if (!isValidTimeZone(timezone)) {
+    throw new Error("Pick a valid timezone for the scheduled publish.");
+  }
+
+  const raw = input.scheduledAt?.trim();
+  if (!raw) {
+    return { status: "PENDING", scheduledAt: null, timezone };
+  }
+
+  const scheduledAt = zonedToUtc(raw, timezone);
+  const future = scheduledAt.getTime() > Date.now() + 1000;
+  return {
+    status: future ? "SCHEDULED" : "PENDING",
+    scheduledAt: future ? scheduledAt : null,
+    timezone,
+  };
+}
+
 /**
  * Resolves the completed renders the user may publish. Renders already queued
  * or published are excluded so the same MP4 cannot be uploaded twice.
  */
 export async function listUploadableRenders(userId: string) {
   const published = await prisma.youtubeUpload.findMany({
-    where: { userId, status: { in: ["PENDING", "UPLOADING", "COMPLETED", "DUPLICATE"] } },
+    where: { userId, status: { in: [...BUSY_STATUSES] } },
     select: { renderId: true },
   });
   const excluded = new Set(published.map((upload) => upload.renderId));
@@ -136,34 +185,41 @@ export async function createYoutubeUpload(
     return { ok: true, upload: toUploadDisplay(existing), duplicate: true };
   }
 
+  let schedule: ResolvedSchedule;
+  try {
+    schedule = resolveSchedule(input);
+  } catch (error) {
+    return { ok: false, error: toErrorMessage(error) };
+  }
+
+  const base = {
+    videoJobId: render.videoJob.id,
+    title: input.title,
+    description: input.description,
+    tags: input.tags,
+    categoryId: input.categoryId,
+    visibility: input.visibility,
+    thumbnailPath: input.thumbnailPath || null,
+    scheduledAt: schedule.scheduledAt,
+    timezone: schedule.timezone,
+  };
+
   const upload = await prisma.youtubeUpload.upsert({
     where: { userId_renderId: { userId, renderId: render.id } },
     create: {
+      ...base,
       userId,
       renderId: render.id,
-      videoJobId: render.videoJob.id,
-      title: input.title,
-      description: input.description,
-      tags: input.tags,
-      categoryId: input.categoryId,
-      visibility: input.visibility,
-      thumbnailPath: input.thumbnailPath || null,
-      status: "PENDING",
+      status: schedule.status,
       progress: 0,
-      stage: "Waiting to start",
+      stage: schedule.status === "SCHEDULED" ? "Scheduled" : "Waiting to start",
       errorLog: [],
     },
     update: {
-      videoJobId: render.videoJob.id,
-      title: input.title,
-      description: input.description,
-      tags: input.tags,
-      categoryId: input.categoryId,
-      visibility: input.visibility,
-      thumbnailPath: input.thumbnailPath || null,
-      status: "PENDING",
+      ...base,
+      status: schedule.status,
       progress: 0,
-      stage: "Waiting to start",
+      stage: schedule.status === "SCHEDULED" ? "Scheduled" : "Waiting to start",
       errorLog: [],
       videoId: null,
       videoUrl: null,
@@ -176,25 +232,39 @@ export async function createYoutubeUpload(
 }
 
 /**
- * Executes the upload for a queued record: resolves a fresh access token,
- * streams the rendered MP4 to YouTube with live progress, then publishes the
- * final video ID/URL. Never exposes token material.
+ * Atomically claims a queued upload for processing. The transition only succeeds
+ * when the record is still PENDING/SCHEDULED and its schedule (if any) is due,
+ * so a future-scheduled upload can never be started early and two workers can
+ * never process the same record concurrently. Returns true when this caller won
+ * the claim.
  */
-export async function runYoutubeUpload(uploadId: string, userId: string): Promise<void> {
+export async function claimYoutubeUpload(uploadId: string, userId: string): Promise<boolean> {
+  const now = new Date();
+  const result = await prisma.youtubeUpload.updateMany({
+    where: {
+      id: uploadId,
+      userId,
+      status: { in: [...CLAIMABLE_STATUSES] },
+      OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }],
+    },
+    data: { status: "PROCESSING", progress: 5, stage: "Resolving credentials", startedAt: now },
+  });
+  return result.count === 1;
+}
+
+/**
+ * Runs the actual upload for an already-claimed record: resolves a fresh access
+ * token, streams the rendered MP4 to YouTube with live progress, then publishes
+ * the final video ID/URL. Never exposes token material.
+ */
+export async function performYoutubeUpload(uploadId: string, userId: string): Promise<void> {
   const upload = await prisma.youtubeUpload.findFirst({
     where: { id: uploadId, userId },
   });
 
-  if (!upload) {
-    throw new Error(`Upload ${uploadId} not found.`);
+  if (!upload || upload.status !== "PROCESSING") {
+    return;
   }
-
-  const startedAt = new Date();
-
-  await prisma.youtubeUpload.update({
-    where: { id: uploadId },
-    data: { status: "UPLOADING", progress: 5, stage: "Resolving credentials", startedAt },
-  });
 
   try {
     const { accessToken, connectionId } = await resolveYoutubeAccessToken(userId);
@@ -277,4 +347,53 @@ export async function runYoutubeUpload(uploadId: string, userId: string): Promis
       });
     }
   }
+}
+
+/**
+ * Claims a queued upload and starts the upload work without blocking the
+ * caller. Safe to call from request handlers and the queue sweep alike; the
+ * atomic claim guarantees only one runner performs the upload.
+ */
+export async function runYoutubeUpload(uploadId: string, userId: string): Promise<boolean> {
+  const claimed = await claimYoutubeUpload(uploadId, userId);
+  if (!claimed) {
+    return false;
+  }
+
+  void performYoutubeUpload(uploadId, userId).catch((error) =>
+    console.error(`[youtube] Upload ${uploadId} crashed: ${toErrorMessage(error)}`)
+  );
+
+  return true;
+}
+
+/**
+ * Queue sweep: finds every upload whose schedule is due and hands each off to a
+ * claim + perform cycle. Called on a timer by the queue worker and safe to run
+ * from multiple server instances because of the atomic claim.
+ */
+export async function processDueYoutubeUploads(
+  userId?: string,
+  limit = 10
+): Promise<{ claimed: number; remaining: number }> {
+  const now = new Date();
+  const due = await prisma.youtubeUpload.findMany({
+    where: {
+      ...(userId ? { userId } : {}),
+      status: { in: [...CLAIMABLE_STATUSES] },
+      OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }],
+    },
+    orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
+    take: limit,
+    select: { id: true, userId: true },
+  });
+
+  let claimed = 0;
+  for (const upload of due) {
+    if (await runYoutubeUpload(upload.id, upload.userId)) {
+      claimed += 1;
+    }
+  }
+
+  return { claimed, remaining: due.length - claimed };
 }

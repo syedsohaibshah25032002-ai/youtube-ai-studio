@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
+import { formatInTimeZone, isValidTimeZone } from "@/lib/date";
 import { runYoutubeUpload, toErrorMessage } from "@/features/youtube-upload/engine";
 import { prisma } from "@/lib/prisma";
 
 /**
  * Starts the YouTube upload for a queued upload record. Execution is fired
  * without blocking so the client can observe progress via the status endpoint.
- * Uploads already in progress are guarded against.
+ * Uploads already in progress are guarded against, and scheduled uploads are
+ * rejected until their publish time arrives.
  */
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -19,14 +21,14 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   const upload = await prisma.youtubeUpload.findFirst({
     where: { id, userId: session.user.id },
-    select: { id: true, status: true },
+    select: { id: true, status: true, scheduledAt: true, timezone: true },
   });
 
   if (!upload) {
     return NextResponse.json({ error: "Upload not found" }, { status: 404 });
   }
 
-  if (upload.status === "UPLOADING") {
+  if (upload.status === "PROCESSING" || upload.status === "UPLOADING") {
     return NextResponse.json({ error: "Already uploading" }, { status: 409 });
   }
 
@@ -37,9 +39,24 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     );
   }
 
+  if (upload.status === "SCHEDULED") {
+    const timezone = isValidTimeZone(upload.timezone) ? upload.timezone : "UTC";
+    if (upload.scheduledAt && upload.scheduledAt.getTime() > Date.now()) {
+      return NextResponse.json(
+        {
+          error: `This video is scheduled for ${formatInTimeZone(
+            upload.scheduledAt,
+            timezone
+          )} and cannot be published early.`,
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   void runYoutubeUpload(id, session.user.id)
     .then(() => console.log(`[youtube] Upload ${id} finished.`))
     .catch((error) => console.error(`[youtube] Upload ${id} crashed: ${toErrorMessage(error)}`));
 
-  return NextResponse.json({ ok: true, status: "UPLOADING" });
+  return NextResponse.json({ ok: true, status: "PROCESSING" });
 }

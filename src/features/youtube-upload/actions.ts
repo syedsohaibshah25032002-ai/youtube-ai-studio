@@ -47,6 +47,8 @@ export type UploadHistoryItem = {
   stage: string;
   videoId: string | null;
   videoUrl: string | null;
+  scheduledAt: Date | null;
+  timezone: string;
   errorLog: unknown;
   createdAt: Date;
   finishedAt: Date | null;
@@ -76,6 +78,8 @@ export async function listYoutubeUploadsAction(): Promise<UploadHistoryItem[]> {
       stage: true,
       videoId: true,
       videoUrl: true,
+      scheduledAt: true,
+      timezone: true,
       errorLog: true,
       createdAt: true,
       finishedAt: true,

@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 
 import { ProgressBar } from "@/components/ai/progress-bar";
 import { UploadStatusBadge } from "@/components/youtube/upload-status-badge";
+import { formatInTimeZone } from "@/lib/date";
 import type { YoutubeUploadDisplay, YoutubeUploadStatus } from "@/features/youtube-upload/types";
 
 const POLL_INTERVAL_MS = 1200;
+const SCHEDULED_POLL_INTERVAL_MS = 30_000;
 const MAX_POLLS = 400;
 
 type UploadProgressProps = {
@@ -16,13 +18,15 @@ type UploadProgressProps = {
   initialProgress: number;
 };
 
+const ACTIVE_STATUSES = ["PENDING", "SCHEDULED", "PROCESSING", "UPLOADING"];
+
 export function UploadProgress({ uploadId, initialStatus, initialProgress }: UploadProgressProps) {
   const router = useRouter();
   const [upload, setUpload] = useState<YoutubeUploadDisplay | null>(null);
   const [gaveUp, setGaveUp] = useState(false);
   const active = upload
-    ? upload.status === "PENDING" || upload.status === "UPLOADING"
-    : initialStatus === "PENDING" || initialStatus === "UPLOADING";
+    ? ACTIVE_STATUSES.includes(upload.status)
+    : ACTIVE_STATUSES.includes(initialStatus);
 
   useEffect(() => {
     if (!active) {
@@ -65,7 +69,9 @@ export function UploadProgress({ uploadId, initialStatus, initialProgress }: Upl
         return;
       }
 
-      window.setTimeout(poll, POLL_INTERVAL_MS);
+      const interval =
+        upload?.status === "SCHEDULED" ? SCHEDULED_POLL_INTERVAL_MS : POLL_INTERVAL_MS;
+      window.setTimeout(poll, interval);
     };
 
     const timer = window.setTimeout(poll, 0);
@@ -73,7 +79,7 @@ export function UploadProgress({ uploadId, initialStatus, initialProgress }: Upl
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [active, uploadId, router]);
+  }, [active, uploadId, router, upload?.status]);
 
   if (gaveUp) {
     return (
@@ -89,10 +95,19 @@ export function UploadProgress({ uploadId, initialStatus, initialProgress }: Upl
     stage: "",
     videoId: null,
     videoUrl: null,
+    scheduledAt: null,
+    timezone: "UTC",
     errorLog: [] as { action: string; message: string; at: string }[],
     title: "",
     id: uploadId,
   };
+
+  const scheduled =
+    current.status === "SCHEDULED"
+      ? current.scheduledAt
+        ? formatInTimeZone(new Date(current.scheduledAt), current.timezone)
+        : null
+      : null;
 
   return (
     <div className="space-y-2">
@@ -103,12 +118,17 @@ export function UploadProgress({ uploadId, initialStatus, initialProgress }: Upl
             ? "Published"
             : current.status === "FAILED"
               ? `${current.progress}%`
-              : `${current.stage || "Uploading..."} · ${current.progress}%`}
+              : current.status === "SCHEDULED"
+                ? `Scheduled for ${scheduled ?? "later"}`
+                : `${current.stage || "Uploading..."} · ${current.progress}%`}
         </span>
       </div>
       <ProgressBar
         value={current.progress}
-        indeterminate={current.status === "UPLOADING" && current.progress < 5}
+        indeterminate={
+          (current.status === "UPLOADING" || current.status === "PROCESSING") &&
+          current.progress < 5
+        }
       />
 
       {current.status === "COMPLETED" && current.videoUrl ? (

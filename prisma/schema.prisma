@@ -312,6 +312,8 @@ model YoutubeUpload {
   videoId          String?
   videoUrl         String?
   thumbnailPath    String?
+  scheduledAt      DateTime?
+  timezone         String    @default("UTC")
   errorLog         Json      @default("[]")
   startedAt        DateTime?
   finishedAt       DateTime?
@@ -323,5 +325,6 @@ model YoutubeUpload {
   @@unique([userId, renderId])
   @@index([userId])
   @@index([status])
+  @@index([status, scheduledAt])
   @@map("youtube_uploads")
 }

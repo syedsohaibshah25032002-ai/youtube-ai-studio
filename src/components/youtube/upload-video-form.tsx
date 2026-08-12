@@ -16,9 +16,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { createYoutubeUploadAction } from "@/features/youtube-upload/actions";
 import { UploadProgress } from "@/components/youtube/upload-progress";
-import { YOUTUBE_CATEGORIES } from "@/features/youtube-upload/types";
+import { YOUTUBE_CATEGORIES, YOUTUBE_TIMEZONES } from "@/features/youtube-upload/types";
 import type { YoutubeUploadDisplay } from "@/features/youtube-upload/types";
-import { Loader2Icon, UploadCloudIcon } from "lucide-react";
+import { ClockIcon, Loader2Icon, UploadCloudIcon } from "lucide-react";
 
 type UploadableRender = {
   id: string;
@@ -49,6 +49,9 @@ export function UploadVideoForm({ renders, connected }: UploadVideoFormProps) {
   const [visibility, setVisibility] = useState<"public" | "private" | "unlisted">("private");
   const [thumbnailPath, setThumbnailPath] = useState("");
   const [thumbnailError, setThumbnailError] = useState<string | null>(null);
+  const [scheduleMode, setScheduleMode] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [timezone, setTimezone] = useState("UTC");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [upload, setUpload] = useState<YoutubeUploadDisplay | null>(null);
@@ -95,6 +98,11 @@ export function UploadVideoForm({ renders, connected }: UploadVideoFormProps) {
     setNotice(null);
     setUpload(null);
 
+    if (scheduleMode && !scheduledAt) {
+      setError("Choose a date and time to schedule the publish.");
+      return;
+    }
+
     const tags = tagsText
       .split(",")
       .map((tag) => tag.trim())
@@ -109,6 +117,8 @@ export function UploadVideoForm({ renders, connected }: UploadVideoFormProps) {
         categoryId,
         visibility,
         thumbnailPath,
+        scheduledAt: scheduleMode ? scheduledAt : "",
+        timezone,
       });
 
       if (!result.ok) {
@@ -119,6 +129,13 @@ export function UploadVideoForm({ renders, connected }: UploadVideoFormProps) {
       if (result.duplicate) {
         setUpload(result.upload);
         setNotice("This render was already published to YouTube. Showing the existing upload.");
+        return;
+      }
+
+      if (result.upload.status === "SCHEDULED") {
+        setUpload(result.upload);
+        setNotice("Video scheduled. The queue will publish it at the chosen time.");
+        router.refresh();
         return;
       }
 
@@ -143,7 +160,19 @@ export function UploadVideoForm({ renders, connected }: UploadVideoFormProps) {
   }
 
   const uploading =
-    upload !== null && (upload.status === "PENDING" || upload.status === "UPLOADING");
+    upload !== null &&
+    (upload.status === "PENDING" ||
+      upload.status === "SCHEDULED" ||
+      upload.status === "PROCESSING" ||
+      upload.status === "UPLOADING");
+
+  const submitLabel = isPending
+    ? "Preparing upload..."
+    : uploading
+      ? "Uploading..."
+      : scheduleMode
+        ? "Schedule publish"
+        : "Upload to YouTube";
 
   return (
     <div className="space-y-6">
@@ -258,6 +287,56 @@ export function UploadVideoForm({ renders, connected }: UploadVideoFormProps) {
           ) : null}
         </div>
 
+        <div className="rounded-md border p-3">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={scheduleMode}
+              onChange={(event) => setScheduleMode(event.target.checked)}
+              className="mt-1 size-4"
+            />
+            <span>
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <ClockIcon className="size-4" /> Schedule this publish
+              </span>
+              <span className="text-muted-foreground mt-0.5 block text-xs">
+                Pick a future date and time. The queue uploads the video no earlier than this
+                instant.
+              </span>
+            </span>
+          </label>
+
+          {scheduleMode ? (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="scheduledAt">Publish date and time</Label>
+                <Input
+                  id="scheduledAt"
+                  type="datetime-local"
+                  value={scheduledAt}
+                  onChange={(event) => setScheduledAt(event.target.value)}
+                  step={60}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Timezone</Label>
+                <Select value={timezone} onValueChange={(value) => setTimezone(value ?? "UTC")}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {YOUTUBE_TIMEZONES.map((zone) => (
+                      <SelectItem key={zone.id} value={zone.id}>
+                        {zone.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
         {error ? <p className="text-destructive text-sm">{error}</p> : null}
         {notice ? <p className="text-sm text-emerald-700">{notice}</p> : null}
 
@@ -270,7 +349,7 @@ export function UploadVideoForm({ renders, connected }: UploadVideoFormProps) {
           ) : (
             <UploadCloudIcon className="size-4" />
           )}
-          {isPending ? "Preparing upload..." : uploading ? "Uploading..." : "Upload to YouTube"}
+          {submitLabel}
         </Button>
       </form>
 

@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { UploadStatusBadge } from "@/components/youtube/upload-status-badge";
 import { readErrorLog } from "@/features/youtube-upload/engine";
-import { formatDate } from "@/lib/date";
+import { formatDate, formatInTimeZone } from "@/lib/date";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -28,6 +28,8 @@ export async function UploadHistoryCard() {
       stage: true,
       videoId: true,
       videoUrl: true,
+      scheduledAt: true,
+      timezone: true,
       errorLog: true,
       createdAt: true,
     },
@@ -55,8 +57,15 @@ export async function UploadHistoryCard() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{upload.title}</p>
                   <p className="text-muted-foreground mt-0.5 text-xs">
-                    {formatDate(upload.createdAt)}
-                    {upload.status === "UPLOADING" || upload.status === "PENDING"
+                    {upload.status === "SCHEDULED" && upload.scheduledAt
+                      ? `Scheduled for ${formatInTimeZone(
+                          upload.scheduledAt,
+                          upload.timezone || "UTC"
+                        )}`
+                      : formatDate(upload.createdAt)}
+                    {upload.status === "UPLOADING" ||
+                    upload.status === "PROCESSING" ||
+                    upload.status === "PENDING"
                       ? ` · ${upload.stage || "Queued"} (${upload.progress}%)`
                       : ""}
                   </p>
@@ -78,7 +87,14 @@ export async function UploadHistoryCard() {
                 </div>
                 <UploadStatusBadge
                   status={
-                    upload.status as "PENDING" | "UPLOADING" | "COMPLETED" | "FAILED" | "DUPLICATE"
+                    upload.status as
+                      | "PENDING"
+                      | "SCHEDULED"
+                      | "PROCESSING"
+                      | "UPLOADING"
+                      | "COMPLETED"
+                      | "FAILED"
+                      | "DUPLICATE"
                   }
                 />
               </div>
