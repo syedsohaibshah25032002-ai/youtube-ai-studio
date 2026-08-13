@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { ProgressBar } from "@/components/ai/progress-bar";
 import { UploadStatusBadge } from "@/components/youtube/upload-status-badge";
-import { formatInTimeZone } from "@/lib/date";
+import { formatInTimeZone, formatRetryIn } from "@/lib/date";
 import type { YoutubeUploadDisplay, YoutubeUploadStatus } from "@/features/youtube-upload/types";
 
 const POLL_INTERVAL_MS = 1200;
@@ -97,6 +97,8 @@ export function UploadProgress({ uploadId, initialStatus, initialProgress }: Upl
     videoUrl: null,
     scheduledAt: null,
     timezone: "UTC",
+    attempts: 0,
+    nextAttemptAt: null,
     errorLog: [] as { action: string; message: string; at: string }[],
     title: "",
     id: uploadId,
@@ -159,6 +161,12 @@ export function UploadProgress({ uploadId, initialStatus, initialProgress }: Upl
             </p>
           ))}
         </div>
+      ) : null}
+
+      {current.attempts > 0 && current.nextAttemptAt ? (
+        <p className="text-muted-foreground text-xs">
+          Retrying in ~{formatRetryIn(new Date(current.nextAttemptAt))} (attempt {current.attempts})
+        </p>
       ) : null}
     </div>
   );

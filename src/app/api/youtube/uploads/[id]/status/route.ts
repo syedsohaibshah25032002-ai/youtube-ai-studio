@@ -39,6 +39,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       errorLog: true,
       startedAt: true,
       finishedAt: true,
+      attempts: true,
+      nextAttemptAt: true,
       createdAt: true,
       updatedAt: true,
     },

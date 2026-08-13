@@ -76,3 +76,20 @@ export function formatInTimeZone(date: Date | null | undefined, timeZone: string
     timeZone,
   }).format(date);
 }
+
+/** Human-friendly countdown to a future instant, e.g. "5m 30s". */
+export function formatRetryIn(date: Date): string {
+  const diff = Math.max(0, date.getTime() - Date.now());
+  const seconds = Math.ceil(diff / 1000);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes < 60) {
+    return rest > 0 ? `${minutes}m ${rest}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes > 0 ? `${hours}h ${restMinutes}m` : `${hours}h`;
+}

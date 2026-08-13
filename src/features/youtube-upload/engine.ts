@@ -5,6 +5,7 @@ import { getYoutubeConnector } from "@/lib/youtube-connect";
 import type { YoutubeUploadMetadata, YoutubeUploadResult } from "@/lib/youtube-connect/types";
 import { resolveYoutubeAccessToken } from "@/features/youtube-connection/engine";
 import { isValidTimeZone, zonedToUtc } from "@/lib/date";
+import { getMaxAttempts, getRetryDelayMs, getStaleProcessingMs } from "./scheduler";
 import type { YoutubeUploadInput } from "@/lib/validations/youtube-upload";
 import {
   type YoutubeUploadDisplay,
@@ -75,6 +76,8 @@ export function toUploadDisplay(upload: {
   videoUrl: string | null;
   scheduledAt: Date | null;
   timezone: string;
+  attempts: number;
+  nextAttemptAt: Date | null;
   errorLog: unknown;
   startedAt: Date | null;
   finishedAt: Date | null;
@@ -97,6 +100,8 @@ export function toUploadDisplay(upload: {
     videoUrl: upload.videoUrl,
     scheduledAt: upload.scheduledAt,
     timezone: upload.timezone,
+    attempts: upload.attempts,
+    nextAttemptAt: upload.nextAttemptAt,
     errorLog: readErrorLog(upload.errorLog),
     startedAt: upload.startedAt,
     finishedAt: upload.finishedAt,
@@ -233,10 +238,11 @@ export async function createYoutubeUpload(
 
 /**
  * Atomically claims a queued upload for processing. The transition only succeeds
- * when the record is still PENDING/SCHEDULED and its schedule (if any) is due,
- * so a future-scheduled upload can never be started early and two workers can
- * never process the same record concurrently. Returns true when this caller won
- * the claim.
+ * when the record is still PENDING/SCHEDULED, its schedule (if any) is due and
+ * its retry gate (`nextAttemptAt`) has passed. This means a future-scheduled
+ * upload can never be started early, a retrying upload waits out its backoff,
+ * and two workers can never process the same record concurrently. Each claim
+ * increments the attempt counter. Returns true when this caller won the claim.
  */
 export async function claimYoutubeUpload(uploadId: string, userId: string): Promise<boolean> {
   const now = new Date();
@@ -245,17 +251,57 @@ export async function claimYoutubeUpload(uploadId: string, userId: string): Prom
       id: uploadId,
       userId,
       status: { in: [...CLAIMABLE_STATUSES] },
-      OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }],
+      AND: [
+        { OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }] },
+        { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
+      ],
     },
-    data: { status: "PROCESSING", progress: 5, stage: "Resolving credentials", startedAt: now },
+    data: {
+      status: "PROCESSING",
+      progress: 5,
+      stage: "Resolving credentials",
+      startedAt: now,
+      attempts: { increment: 1 },
+    },
   });
   return result.count === 1;
 }
 
 /**
+ * Schedules a retry for a failed upload: returns it to a claimable status and
+ * places the retry gate in the future so the sweep re-runs it after a backoff.
+ * The record (and its full error history) is always preserved.
+ */
+async function scheduleRetry(uploadId: string, attempts: number, message: string): Promise<void> {
+  const retryAt = new Date(Date.now() + getRetryDelayMs(attempts));
+  const upload = await prisma.youtubeUpload.findUnique({ where: { id: uploadId } });
+
+  await prisma.youtubeUpload.update({
+    where: { id: uploadId },
+    data: {
+      status: upload?.scheduledAt ? "SCHEDULED" : "PENDING",
+      progress: 0,
+      stage: `Retry scheduled`,
+      nextAttemptAt: retryAt,
+      startedAt: null,
+      errorLog: [
+        ...readErrorLog(upload?.errorLog),
+        {
+          action: "retry",
+          message,
+          at: new Date().toISOString(),
+        },
+      ],
+    },
+  });
+}
+
+/**
  * Runs the actual upload for an already-claimed record: resolves a fresh access
  * token, streams the rendered MP4 to YouTube with live progress, then publishes
- * the final video ID/URL. Never exposes token material.
+ * the final video ID/URL. Transient failures are retried automatically with
+ * backoff; token revocation is terminal. The record is never lost. Never
+ * exposes token material.
  */
 export async function performYoutubeUpload(uploadId: string, userId: string): Promise<void> {
   const upload = await prisma.youtubeUpload.findFirst({
@@ -305,6 +351,7 @@ export async function performYoutubeUpload(uploadId: string, userId: string): Pr
         stage: "Published",
         videoId: result.videoId,
         videoUrl: result.videoUrl,
+        nextAttemptAt: null,
         finishedAt: new Date(),
       },
     });
@@ -322,18 +369,25 @@ export async function performYoutubeUpload(uploadId: string, userId: string): Pr
         ? (error as { code?: string }).code
         : undefined;
     const revoked = code === "TOKEN_REVOKED";
+    const attempts = upload.attempts;
+    const retryable = !revoked && attempts < getMaxAttempts();
 
-    console.error(`[youtube] Upload ${uploadId} failed: ${message}`);
+    console.error(`[youtube] Upload ${uploadId} failed (attempt ${attempts}): ${message}`);
 
-    await prisma.youtubeUpload.update({
-      where: { id: uploadId },
-      data: {
-        status: "FAILED",
-        stage: revoked ? "Credentials revoked" : "Failed",
-        errorLog: [...readErrorLog(upload.errorLog), entry],
-        finishedAt: new Date(),
-      },
-    });
+    if (retryable) {
+      await scheduleRetry(uploadId, attempts, message);
+    } else {
+      await prisma.youtubeUpload.update({
+        where: { id: uploadId },
+        data: {
+          status: "FAILED",
+          stage: revoked ? "Credentials revoked" : "Failed",
+          nextAttemptAt: null,
+          errorLog: [...readErrorLog(upload.errorLog), entry],
+          finishedAt: new Date(),
+        },
+      });
+    }
 
     const connection = await prisma.youtubeConnection.findUnique({ where: { userId } });
     if (connection) {
@@ -347,6 +401,62 @@ export async function performYoutubeUpload(uploadId: string, userId: string): Pr
       });
     }
   }
+}
+
+/**
+ * Crash recovery: reclaims PROCESSING uploads whose progress heartbeat has not
+ * advanced within the stale window (e.g. the server restarted mid-upload) and
+ * returns them to a claimable status with a retry gate. The record is never
+ * deleted and the failure is preserved in the error log.
+ */
+export async function reclaimStaleProcessingUploads(limit = 25): Promise<number> {
+  const staleBefore = new Date(Date.now() - getStaleProcessingMs());
+  const stale = await prisma.youtubeUpload.findMany({
+    where: { status: "PROCESSING", updatedAt: { lt: staleBefore } },
+    orderBy: { updatedAt: "asc" },
+    take: limit,
+    select: { id: true },
+  });
+
+  let reclaimed = 0;
+  for (const upload of stale) {
+    const current = await prisma.youtubeUpload.findUnique({
+      where: { id: upload.id },
+      select: { attempts: true, scheduledAt: true, errorLog: true },
+    });
+    if (!current) {
+      continue;
+    }
+
+    const result = await prisma.youtubeUpload.updateMany({
+      where: {
+        id: upload.id,
+        status: "PROCESSING",
+        updatedAt: { lt: staleBefore },
+      },
+      data: {
+        status: current.scheduledAt ? "SCHEDULED" : "PENDING",
+        progress: 0,
+        stage: "Reclaimed after interruption",
+        nextAttemptAt: new Date(Date.now() + getRetryDelayMs(current.attempts)),
+        startedAt: null,
+        errorLog: [
+          ...readErrorLog(current.errorLog),
+          {
+            action: "reclaim",
+            message: "Processing was interrupted and reclaimed for retry.",
+            at: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+
+    if (result.count === 1) {
+      reclaimed += 1;
+    }
+  }
+
+  return reclaimed;
 }
 
 /**
@@ -368,20 +478,25 @@ export async function runYoutubeUpload(uploadId: string, userId: string): Promis
 }
 
 /**
- * Queue sweep: finds every upload whose schedule is due and hands each off to a
+ * Queue sweep: reclaims crashed PROCESSING uploads, then finds every upload
+ * whose schedule (and retry gate, if any) is due and hands each off to a
  * claim + perform cycle. Called on a timer by the queue worker and safe to run
  * from multiple server instances because of the atomic claim.
  */
 export async function processDueYoutubeUploads(
   userId?: string,
   limit = 10
-): Promise<{ claimed: number; remaining: number }> {
+): Promise<{ claimed: number; remaining: number; reclaimed: number }> {
+  const reclaimed = await reclaimStaleProcessingUploads();
   const now = new Date();
   const due = await prisma.youtubeUpload.findMany({
     where: {
       ...(userId ? { userId } : {}),
       status: { in: [...CLAIMABLE_STATUSES] },
-      OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }],
+      AND: [
+        { OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }] },
+        { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
+      ],
     },
     orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
     take: limit,
@@ -395,5 +510,5 @@ export async function processDueYoutubeUploads(
     }
   }
 
-  return { claimed, remaining: due.length - claimed };
+  return { claimed, remaining: due.length - claimed, reclaimed };
 }

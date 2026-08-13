@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { UploadStatusBadge } from "@/components/youtube/upload-status-badge";
 import { readErrorLog } from "@/features/youtube-upload/engine";
-import { formatDate, formatInTimeZone } from "@/lib/date";
+import { formatDate, formatInTimeZone, formatRetryIn } from "@/lib/date";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -31,6 +31,8 @@ export async function UploadHistoryCard() {
       scheduledAt: true,
       timezone: true,
       errorLog: true,
+      attempts: true,
+      nextAttemptAt: true,
       createdAt: true,
     },
   });
@@ -82,6 +84,11 @@ export async function UploadHistoryCard() {
                   {upload.status === "FAILED" && errors.length > 0 ? (
                     <p className="text-destructive mt-1 text-xs">
                       {errors[errors.length - 1]?.message}
+                    </p>
+                  ) : null}
+                  {upload.attempts > 0 && upload.nextAttemptAt ? (
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      Retrying in ~{formatRetryIn(upload.nextAttemptAt)} (attempt {upload.attempts})
                     </p>
                   ) : null}
                 </div>

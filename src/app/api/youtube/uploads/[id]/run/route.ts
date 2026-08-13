@@ -21,7 +21,14 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   const upload = await prisma.youtubeUpload.findFirst({
     where: { id, userId: session.user.id },
-    select: { id: true, status: true, scheduledAt: true, timezone: true },
+    select: {
+      id: true,
+      status: true,
+      scheduledAt: true,
+      timezone: true,
+      nextAttemptAt: true,
+      attempts: true,
+    },
   });
 
   if (!upload) {
@@ -35,6 +42,22 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   if (upload.status === "COMPLETED" || upload.status === "DUPLICATE") {
     return NextResponse.json(
       { error: "This video was already published to YouTube" },
+      { status: 409 }
+    );
+  }
+
+  if (upload.status === "FAILED") {
+    if (upload.nextAttemptAt && upload.nextAttemptAt.getTime() > Date.now()) {
+      return NextResponse.json(
+        { error: "Automatic retry is scheduled and cannot be skipped." },
+        { status: 409 }
+      );
+    }
+  }
+
+  if (upload.nextAttemptAt && upload.nextAttemptAt.getTime() > Date.now()) {
+    return NextResponse.json(
+      { error: "This upload is waiting for its scheduled retry and cannot be run now." },
       { status: 409 }
     );
   }

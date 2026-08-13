@@ -42,6 +42,8 @@ export type YoutubeUploadDisplay = {
   videoUrl: string | null;
   scheduledAt: Date | null;
   timezone: string;
+  attempts: number;
+  nextAttemptAt: Date | null;
   errorLog: { action: string; message: string; at: string }[];
   startedAt: Date | null;
   finishedAt: Date | null;
