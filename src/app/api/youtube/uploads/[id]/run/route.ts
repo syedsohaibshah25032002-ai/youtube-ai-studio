@@ -46,6 +46,10 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     );
   }
 
+  if (upload.status === "CANCELLED") {
+    return NextResponse.json({ error: "This upload was cancelled." }, { status: 409 });
+  }
+
   if (upload.status === "FAILED") {
     if (upload.nextAttemptAt && upload.nextAttemptAt.getTime() > Date.now()) {
       return NextResponse.json(

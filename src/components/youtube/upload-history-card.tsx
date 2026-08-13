@@ -4,7 +4,6 @@ import { UploadStatusBadge } from "@/components/youtube/upload-status-badge";
 import { readErrorLog } from "@/features/youtube-upload/engine";
 import { formatDate, formatInTimeZone, formatRetryIn } from "@/lib/date";
 import { prisma } from "@/lib/prisma";
-
 /**
  * Shows the current user's recent YouTube uploads with their status and a link
  * to the published video. Sanitized records only; no token material is read or
@@ -101,6 +100,7 @@ export async function UploadHistoryCard() {
                       | "UPLOADING"
                       | "COMPLETED"
                       | "FAILED"
+                      | "CANCELLED"
                       | "DUPLICATE"
                   }
                 />
@@ -108,6 +108,16 @@ export async function UploadHistoryCard() {
             );
           })
         )}
+        {uploads.length > 0 ? (
+          <div className="pt-1">
+            <a
+              href="/dashboard/youtube/upload/history"
+              className="text-primary text-xs font-medium hover:underline"
+            >
+              View full upload history →
+            </a>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

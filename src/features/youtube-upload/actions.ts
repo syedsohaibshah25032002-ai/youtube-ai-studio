@@ -6,7 +6,14 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { youtubeUploadSchema, type YoutubeUploadInput } from "@/lib/validations/youtube-upload";
-import { createYoutubeUpload, type CreateUploadResult } from "./engine";
+import {
+  cancelYoutubeUpload,
+  createYoutubeUpload,
+  publishYoutubeUploadNow,
+  retryYoutubeUpload,
+  type CreateUploadResult,
+  type ManageUploadResult,
+} from "./engine";
 
 /**
  * Queues an MP4 render for publishing to the user's connected YouTube channel.
@@ -34,6 +41,52 @@ export async function createYoutubeUploadAction(
     revalidatePath("/dashboard/youtube/upload");
   }
 
+  return result;
+}
+
+/**
+ * Cancels a queued or scheduled upload. Only uploads that have not started
+ * publishing can be cancelled.
+ */
+export async function cancelYoutubeUploadAction(uploadId: string): Promise<ManageUploadResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect("/login");
+  }
+
+  const result = await cancelYoutubeUpload(uploadId, session.user.id);
+  revalidatePath("/dashboard/youtube/upload");
+  revalidatePath("/dashboard/youtube/upload/history");
+  return result;
+}
+
+/**
+ * Publishes a scheduled upload immediately, overriding its chosen time.
+ */
+export async function publishYoutubeUploadNowAction(uploadId: string): Promise<ManageUploadResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect("/login");
+  }
+
+  const result = await publishYoutubeUploadNow(uploadId, session.user.id);
+  revalidatePath("/dashboard/youtube/upload");
+  revalidatePath("/dashboard/youtube/upload/history");
+  return result;
+}
+
+/**
+ * Manually re-queues a terminal failed upload so it can be attempted again.
+ */
+export async function retryYoutubeUploadAction(uploadId: string): Promise<ManageUploadResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect("/login");
+  }
+
+  const result = await retryYoutubeUpload(uploadId, session.user.id);
+  revalidatePath("/dashboard/youtube/upload");
+  revalidatePath("/dashboard/youtube/upload/history");
   return result;
 }
 

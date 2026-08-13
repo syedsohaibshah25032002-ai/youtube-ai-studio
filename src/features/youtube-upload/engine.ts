@@ -32,6 +32,12 @@ const BUSY_STATUSES = [
   "DUPLICATE",
 ] as const;
 
+/**
+ * Terminal statuses that allow a render to be re-queued: a failed or cancelled
+ * upload did not publish anything, so the render becomes uploadable again.
+ */
+const REQUEUEABLE_STATUSES = ["FAILED", "CANCELLED"] as const;
+
 export function toErrorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "message" in error) {
     return String((error as { message: unknown }).message);
@@ -186,7 +192,10 @@ export async function createYoutubeUpload(
     where: { userId_renderId: { userId, renderId: render.id } },
   });
 
-  if (existing && existing.status !== "FAILED") {
+  if (
+    existing &&
+    !REQUEUEABLE_STATUSES.includes(existing.status as (typeof REQUEUEABLE_STATUSES)[number])
+  ) {
     return { ok: true, upload: toUploadDisplay(existing), duplicate: true };
   }
 
@@ -230,6 +239,8 @@ export async function createYoutubeUpload(
       videoUrl: null,
       startedAt: null,
       finishedAt: null,
+      attempts: 0,
+      nextAttemptAt: null,
     },
   });
 
@@ -511,4 +522,90 @@ export async function processDueYoutubeUploads(
   }
 
   return { claimed, remaining: due.length - claimed, reclaimed };
+}
+
+export type ManageUploadResult =
+  { ok: true; upload: YoutubeUploadDisplay } | { ok: false; error: string };
+
+/**
+ * Cancels a queued or scheduled upload before it publishes. Only PENDING and
+ * SCHEDULED records can be cancelled (a claim already in progress cannot be
+ * aborted safely). The record is kept for history.
+ */
+export async function cancelYoutubeUpload(
+  uploadId: string,
+  userId: string
+): Promise<ManageUploadResult> {
+  const result = await prisma.youtubeUpload.updateMany({
+    where: { id: uploadId, userId, status: { in: ["PENDING", "SCHEDULED"] } },
+    data: { status: "CANCELLED", stage: "Cancelled", progress: 0, nextAttemptAt: null },
+  });
+
+  if (result.count !== 1) {
+    return { ok: false, error: "This upload can no longer be cancelled." };
+  }
+
+  const upload = await prisma.youtubeUpload.findUnique({ where: { id: uploadId } });
+  return upload
+    ? { ok: true, upload: toUploadDisplay(upload) }
+    : { ok: false, error: "Upload not found." };
+}
+
+/**
+ * Publishes a scheduled upload immediately, overriding its chosen time. The
+ * schedule is cleared and the upload is handed to the claim + perform cycle.
+ */
+export async function publishYoutubeUploadNow(
+  uploadId: string,
+  userId: string
+): Promise<ManageUploadResult> {
+  const result = await prisma.youtubeUpload.updateMany({
+    where: { id: uploadId, userId, status: "SCHEDULED" },
+    data: { scheduledAt: null, nextAttemptAt: null },
+  });
+
+  if (result.count !== 1) {
+    return { ok: false, error: "Only a scheduled upload can be published now." };
+  }
+
+  await runYoutubeUpload(uploadId, userId);
+
+  const upload = await prisma.youtubeUpload.findUnique({ where: { id: uploadId } });
+  return upload
+    ? { ok: true, upload: toUploadDisplay(upload) }
+    : { ok: false, error: "Upload not found." };
+}
+
+/**
+ * Manually re-queues a terminal FAILED upload so it can be attempted again.
+ * The record (and its error history) is preserved while the retry budget and
+ * schedule are reset.
+ */
+export async function retryYoutubeUpload(
+  uploadId: string,
+  userId: string
+): Promise<ManageUploadResult> {
+  const result = await prisma.youtubeUpload.updateMany({
+    where: { id: uploadId, userId, status: "FAILED" },
+    data: {
+      status: "PENDING",
+      stage: "Waiting to start",
+      progress: 0,
+      attempts: 0,
+      nextAttemptAt: null,
+      startedAt: null,
+      finishedAt: null,
+    },
+  });
+
+  if (result.count !== 1) {
+    return { ok: false, error: "Only a failed upload can be retried." };
+  }
+
+  await runYoutubeUpload(uploadId, userId);
+
+  const upload = await prisma.youtubeUpload.findUnique({ where: { id: uploadId } });
+  return upload
+    ? { ok: true, upload: toUploadDisplay(upload) }
+    : { ok: false, error: "Upload not found." };
 }

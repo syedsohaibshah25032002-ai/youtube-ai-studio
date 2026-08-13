@@ -16,6 +16,7 @@ export function UploadStatusBadge({ status }: UploadStatusBadgeProps) {
     UPLOADING: "default",
     COMPLETED: "outline",
     FAILED: "destructive",
+    CANCELLED: "outline",
     DUPLICATE: "outline",
   }[status] as "secondary" | "default" | "outline" | "destructive";
 

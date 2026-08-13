@@ -7,6 +7,7 @@ export const YOUTUBE_UPLOAD_STATUSES = [
   "UPLOADING",
   "COMPLETED",
   "FAILED",
+  "CANCELLED",
   "DUPLICATE",
 ] as const;
 
@@ -19,6 +20,7 @@ export const YOUTUBE_UPLOAD_STATUS_LABELS: Record<YoutubeUploadStatus, string> =
   UPLOADING: "Uploading",
   COMPLETED: "Published",
   FAILED: "Failed",
+  CANCELLED: "Cancelled",
   DUPLICATE: "Already published",
 };
 
