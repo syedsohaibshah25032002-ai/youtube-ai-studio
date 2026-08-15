@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import { toConnectionDisplay } from "@/features/youtube-connection/engine";
 import { YoutubeConnectionCard } from "@/components/youtube/youtube-connection-card";
+import { Button } from "@/components/ui/button";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
   title: "YouTube connection",
-  description: "Connect your YouTube channel securely to publish videos later.",
+  description: "Connect your YouTube channel securely to publish rendered videos.",
 };
 
 export default async function YoutubeConnectionPage() {
@@ -26,12 +28,16 @@ export default async function YoutubeConnectionPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">YouTube connection</h1>
         <p className="text-muted-foreground mt-2">
-          Securely connect your own YouTube channel. Publishing arrives in a later phase.
+          Securely connect your own YouTube channel, then publish rendered videos directly to it.
         </p>
       </div>
 
       <div className="max-w-2xl">
         <YoutubeConnectionCard connection={toConnectionDisplay(connection)} />
+      </div>
+
+      <div>
+        <Button render={<Link href="/dashboard/youtube/upload" />}>Go to uploads</Button>
       </div>
     </div>
   );

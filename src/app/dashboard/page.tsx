@@ -56,27 +56,37 @@ export default async function DashboardPage({
   const params = await searchParams;
   const message = getConnectionMessage(params);
 
-  const [channelCount, videoCount, aiJobCount, mediaAssetCount, videoJobCount, renderCount] =
-    await Promise.all([
-      prisma.channel.count({
-        where: { userId: user.id },
-      }),
-      prisma.video.count({
-        where: { channel: { userId: user.id } },
-      }),
-      prisma.aiJob.count({
-        where: { userId: user.id },
-      }),
-      prisma.mediaAsset.count({
-        where: { userId: user.id },
-      }),
-      prisma.videoJob.count({
-        where: { userId: user.id },
-      }),
-      prisma.videoRender.count({
-        where: { userId: user.id },
-      }),
-    ]);
+  const [
+    channelCount,
+    videoCount,
+    aiJobCount,
+    mediaAssetCount,
+    videoJobCount,
+    renderCount,
+    youtubeUploadCount,
+  ] = await Promise.all([
+    prisma.channel.count({
+      where: { userId: user.id },
+    }),
+    prisma.video.count({
+      where: { channel: { userId: user.id } },
+    }),
+    prisma.aiJob.count({
+      where: { userId: user.id },
+    }),
+    prisma.mediaAsset.count({
+      where: { userId: user.id },
+    }),
+    prisma.videoJob.count({
+      where: { userId: user.id },
+    }),
+    prisma.videoRender.count({
+      where: { userId: user.id },
+    }),
+    prisma.youtubeUpload.count({
+      where: { userId: user.id },
+    }),
+  ]);
 
   const youtubeConnection = await prisma.youtubeConnection.findUnique({
     where: { userId: user.id },
@@ -230,11 +240,21 @@ export default async function DashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Next steps</CardTitle>
-            <CardDescription>Coming soon</CardDescription>
+            <CardTitle className="text-base">YouTube Publishing</CardTitle>
+            <CardDescription>
+              {youtubeUploadCount === 0
+                ? "No uploads yet"
+                : `${youtubeUploadCount} ${youtubeUploadCount === 1 ? "upload" : "uploads"}`}
+            </CardDescription>
           </CardHeader>
-          <CardContent className="text-muted-foreground text-sm">
-            YouTube publishing is on the way. Rendering and export are live in Video Studio.
+          <CardContent>
+            <Button
+              variant={youtubeUploadCount === 0 ? "default" : "outline"}
+              size="sm"
+              render={<Link href="/dashboard/youtube/upload" />}
+            >
+              {youtubeUploadCount === 0 ? "Publish a video" : "Manage uploads"}
+            </Button>
           </CardContent>
         </Card>
       </div>
