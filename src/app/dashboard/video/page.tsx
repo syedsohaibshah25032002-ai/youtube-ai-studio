@@ -32,6 +32,18 @@ export default async function VideoStudioPage() {
     },
   });
 
+  const published = await prisma.youtubeUpload.findMany({
+    where: { userId: session.user.id, status: "COMPLETED", videoJobId: { not: null } },
+    select: { videoJobId: true, videoUrl: true },
+  });
+
+  const publishedUrls = new Map<string, string>();
+  for (const upload of published) {
+    if (upload.videoJobId && upload.videoUrl) {
+      publishedUrls.set(upload.videoJobId, upload.videoUrl);
+    }
+  }
+
   return (
     <div className="container mx-auto flex flex-1 flex-col px-4 py-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -75,6 +87,7 @@ export default async function VideoStudioPage() {
               stage={job.stage}
               provider={job.provider}
               createdAt={job.createdAt}
+              youtubeVideoUrl={publishedUrls.get(job.id) ?? null}
             />
           ))}
         </div>

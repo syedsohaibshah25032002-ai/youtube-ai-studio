@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeleteVideoButton } from "@/components/video/delete-video-button";
 import { GenerateVideoButton } from "@/components/video/generate-video-button";
 import { RenderHistorySection } from "@/components/video/render-history-section";
@@ -19,7 +19,13 @@ import { CAPTION_STYLE_LABELS, TRANSITION_LABELS } from "@/features/video-engine
 import { readConfig, readErrorLog, readTimeline } from "@/features/video-engine/generator";
 import { formatDate } from "@/lib/date";
 import { prisma } from "@/lib/prisma";
-import { ArrowLeftIcon, ClipboardXIcon, FilmIcon, MonitorPlayIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ClipboardXIcon,
+  FilmIcon,
+  MonitorPlayIcon,
+  PlayCircleIcon,
+} from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Video job",
@@ -44,6 +50,12 @@ export default async function VideoJobDetailPage({ params }: { params: Promise<{
   if (!job) {
     redirect("/dashboard/video");
   }
+
+  const publish = await prisma.youtubeUpload.findFirst({
+    where: { userId: session.user.id, videoJobId: job.id, status: "COMPLETED" },
+    orderBy: { finishedAt: "desc" },
+    select: { videoId: true, videoUrl: true, finishedAt: true },
+  });
 
   const config = readConfig(job.config);
   const timeline = readTimeline(job.timeline);
@@ -115,6 +127,45 @@ export default async function VideoJobDetailPage({ params }: { params: Promise<{
               ) : null}
               {job.finishedAt ? <span>Finished {formatDate(job.finishedAt)}</span> : null}
             </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {publish?.videoUrl ? (
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <PlayCircleIcon className="size-4" />
+              Published on YouTube
+            </CardTitle>
+            <CardDescription>
+              This video was published to your connected YouTube channel.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <a
+              href={publish.videoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary block text-sm font-medium hover:underline"
+            >
+              {publish.videoUrl}
+            </a>
+            <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+              {publish.videoId ? (
+                <span>
+                  Video ID: <span className="font-mono">{publish.videoId}</span>
+                </span>
+              ) : null}
+              {publish.finishedAt ? <span>Published {formatDate(publish.finishedAt)}</span> : null}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              render={<Link href="/dashboard/youtube/upload/history" />}
+            >
+              View upload history
+            </Button>
           </CardContent>
         </Card>
       ) : null}

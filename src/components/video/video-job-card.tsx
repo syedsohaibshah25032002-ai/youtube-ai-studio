@@ -4,7 +4,7 @@ import { ProgressBar } from "@/components/ai/progress-bar";
 import { VideoStatusBadge } from "@/components/video/video-status-badge";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate } from "@/lib/date";
-import { ArrowRightIcon, ClapperboardIcon } from "lucide-react";
+import { ArrowRightIcon, ClapperboardIcon, PlayCircleIcon } from "lucide-react";
 
 type VideoJobCardProps = {
   id: string;
@@ -14,6 +14,8 @@ type VideoJobCardProps = {
   stage: string;
   provider: string;
   createdAt: Date;
+  /** YouTube watch URL when this job's render has been published. */
+  youtubeVideoUrl?: string | null;
 };
 
 export function VideoJobCard({
@@ -24,6 +26,7 @@ export function VideoJobCard({
   stage,
   provider,
   createdAt,
+  youtubeVideoUrl,
 }: VideoJobCardProps) {
   return (
     <Card className="flex flex-col">
@@ -47,6 +50,17 @@ export function VideoJobCard({
                 ? "Generation failed — view details to retry"
                 : "Waiting to start"}
         </p>
+        {youtubeVideoUrl ? (
+          <a
+            href={youtubeVideoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:text-primary/80 inline-flex items-center gap-1 text-xs font-medium"
+          >
+            <PlayCircleIcon className="size-3.5" />
+            Published on YouTube
+          </a>
+        ) : null}
       </CardContent>
       <CardFooter className="mt-auto flex items-center justify-between">
         <span className="text-muted-foreground text-xs">
