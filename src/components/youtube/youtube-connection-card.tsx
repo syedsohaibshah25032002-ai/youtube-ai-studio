@@ -40,7 +40,7 @@ export function YoutubeConnectionCard({ connection }: YoutubeConnectionCardProps
           <YoutubeConnectionStatusBadge status={connection.status} />
         </CardTitle>
         <CardDescription>
-          Connect your YouTube channel so your videos can be published to it later.
+          Connect your YouTube channel to publish rendered videos to it.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
