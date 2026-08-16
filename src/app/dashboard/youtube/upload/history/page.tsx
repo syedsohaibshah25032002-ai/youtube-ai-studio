@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import { Button } from "@/components/ui/button";
+import { UploadHistoryAutoRefresh } from "@/components/youtube/upload-history-auto-refresh";
 import { UploadManagementActions } from "@/components/youtube/upload-management-actions";
 import { UploadStatusBadge } from "@/components/youtube/upload-status-badge";
 import { readErrorLog, toUploadDisplay } from "@/features/youtube-upload/engine";
@@ -51,8 +52,13 @@ export default async function YoutubeUploadHistoryPage() {
     },
   });
 
+  const hasActive = uploads.some((upload) =>
+    ["PENDING", "SCHEDULED", "PROCESSING", "UPLOADING"].includes(upload.status)
+  );
+
   return (
     <div className="container mx-auto flex flex-1 flex-col px-4 py-10">
+      <UploadHistoryAutoRefresh hasActive={hasActive} />
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Upload History</h1>
