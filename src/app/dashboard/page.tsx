@@ -41,6 +41,22 @@ function getConnectionMessage(searchParams: Record<string, string | string[] | u
   return { kind: null, message: "" };
 }
 
+function buildUploadSummary(counts: { status: string; _count: number }[]) {
+  const sum = (statuses: string[]) =>
+    counts
+      .filter((entry) => statuses.includes(entry.status))
+      .reduce((total, entry) => total + entry._count, 0);
+
+  return {
+    total: counts.reduce((total, entry) => total + entry._count, 0),
+    active: sum(["PENDING", "SCHEDULED", "PROCESSING", "UPLOADING"]),
+    published: sum(["COMPLETED"]),
+    failed: sum(["FAILED"]),
+    cancelled: sum(["CANCELLED"]),
+    duplicate: sum(["DUPLICATE"]),
+  };
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -63,7 +79,7 @@ export default async function DashboardPage({
     mediaAssetCount,
     videoJobCount,
     renderCount,
-    youtubeUploadCount,
+    youtubeUploadStatuses,
   ] = await Promise.all([
     prisma.channel.count({
       where: { userId: user.id },
@@ -83,10 +99,14 @@ export default async function DashboardPage({
     prisma.videoRender.count({
       where: { userId: user.id },
     }),
-    prisma.youtubeUpload.count({
+    prisma.youtubeUpload.groupBy({
+      by: ["status"],
       where: { userId: user.id },
+      _count: true,
     }),
   ]);
+
+  const uploadSummary = buildUploadSummary(youtubeUploadStatuses);
 
   const youtubeConnection = await prisma.youtubeConnection.findUnique({
     where: { userId: user.id },
@@ -242,18 +262,27 @@ export default async function DashboardPage({
           <CardHeader>
             <CardTitle className="text-base">YouTube Publishing</CardTitle>
             <CardDescription>
-              {youtubeUploadCount === 0
+              {uploadSummary.total === 0
                 ? "No uploads yet"
-                : `${youtubeUploadCount} ${youtubeUploadCount === 1 ? "upload" : "uploads"}`}
+                : `${uploadSummary.total} ${uploadSummary.total === 1 ? "upload" : "uploads"}`}
+              {uploadSummary.total > 0 ? (
+                <>
+                  {uploadSummary.active > 0 ? ` · ${uploadSummary.active} active` : ""}
+                  {uploadSummary.published > 0 ? ` · ${uploadSummary.published} published` : ""}
+                  {uploadSummary.failed > 0 ? ` · ${uploadSummary.failed} failed` : ""}
+                  {uploadSummary.cancelled > 0 ? ` · ${uploadSummary.cancelled} cancelled` : ""}
+                  {uploadSummary.duplicate > 0 ? ` · ${uploadSummary.duplicate} duplicate` : ""}
+                </>
+              ) : null}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button
-              variant={youtubeUploadCount === 0 ? "default" : "outline"}
+              variant={uploadSummary.total === 0 ? "default" : "outline"}
               size="sm"
               render={<Link href="/dashboard/youtube/upload" />}
             >
-              {youtubeUploadCount === 0 ? "Publish a video" : "Manage uploads"}
+              {uploadSummary.total === 0 ? "Publish a video" : "Manage uploads"}
             </Button>
           </CardContent>
         </Card>
