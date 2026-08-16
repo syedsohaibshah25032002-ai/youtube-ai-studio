@@ -33,7 +33,11 @@ export default async function VideoStudioPage() {
   });
 
   const published = await prisma.youtubeUpload.findMany({
-    where: { userId: session.user.id, status: "COMPLETED", videoJobId: { not: null } },
+    where: {
+      userId: session.user.id,
+      status: { in: ["COMPLETED", "DUPLICATE"] },
+      videoJobId: { not: null },
+    },
     select: { videoJobId: true, videoUrl: true },
   });
 

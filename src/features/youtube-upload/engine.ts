@@ -196,7 +196,14 @@ export async function createYoutubeUpload(
     existing &&
     !REQUEUEABLE_STATUSES.includes(existing.status as (typeof REQUEUEABLE_STATUSES)[number])
   ) {
-    return { ok: true, upload: toUploadDisplay(existing), duplicate: true };
+    const upload =
+      existing.status === "COMPLETED"
+        ? await prisma.youtubeUpload.update({
+            where: { id: existing.id },
+            data: { status: "DUPLICATE" },
+          })
+        : existing;
+    return { ok: true, upload: toUploadDisplay(upload), duplicate: true };
   }
 
   let schedule: ResolvedSchedule;

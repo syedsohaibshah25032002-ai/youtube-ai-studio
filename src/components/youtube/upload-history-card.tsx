@@ -70,7 +70,8 @@ export async function UploadHistoryCard() {
                       ? ` · ${upload.stage || "Queued"} (${upload.progress}%)`
                       : ""}
                   </p>
-                  {upload.status === "COMPLETED" && upload.videoUrl ? (
+                  {(upload.status === "COMPLETED" || upload.status === "DUPLICATE") &&
+                  upload.videoUrl ? (
                     <a
                       href={upload.videoUrl}
                       target="_blank"

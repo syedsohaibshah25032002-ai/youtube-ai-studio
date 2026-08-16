@@ -52,7 +52,11 @@ export default async function VideoJobDetailPage({ params }: { params: Promise<{
   }
 
   const publish = await prisma.youtubeUpload.findFirst({
-    where: { userId: session.user.id, videoJobId: job.id, status: "COMPLETED" },
+    where: {
+      userId: session.user.id,
+      videoJobId: job.id,
+      status: { in: ["COMPLETED", "DUPLICATE"] },
+    },
     orderBy: { finishedAt: "desc" },
     select: { videoId: true, videoUrl: true, finishedAt: true },
   });
